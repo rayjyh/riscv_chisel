@@ -11,23 +11,25 @@ object ALU {
 	val ALU_AND   =  7.U(4.W)
 	val ALU_SRL   =  5.U(4.W)
 	val ALU_SEQ   =  8.U(4.W)
-	val	ALU_SNE	 =	9.U(4.W)
+	val ALU_SNE   =	 9.U(4.W)
 	val ALU_SUB   =  10.U(4.W)
 	val ALU_SRA   =  11.U(4.W)
-	val	ALU_SLT   =  12.U(4.W)
-	val	ALU_SGE   =  13.U(4.W)
-	val	ALU_SLTU	 =	14.U(4.W)				
-	val	ALU_SGEU  =  15.U(4.W)
+	val ALU_SLT   =  12.U(4.W)
+	val ALU_SGE   =  13.U(4.W)
+	val ALU_SLTU  =	 14.U(4.W)				
+	val ALU_SGEU  =  15.U(4.W)
 }
 
-class ALUIO(ALUOpWidth: Int, DataWidth: Int) extends Bundle {
+class ALUIO(ALUOpWidth: Int = 4, DataWidth: Int = 32) extends Bundle{
 	val op = Input(UInt(ALUOpWidth.W))
   	val in1 = Input(UInt(DataWidth.W))
   	val in2 = Input(UInt(DataWidth.W))
   	val out = Output(UInt(DataWidth.W))
 }
 
-class ALU() extends Module{
+import ALU._
+
+class ALU(ALUOpWidth: Int = 4, DataWidth: Int = 32) extends Module{
 	val io = IO(new ALUIO)
 	val shamt = io.in2(4,0).asUInt
 
@@ -45,7 +47,7 @@ class ALU() extends Module{
       	ALU_SLT  -> (io.in1.asSInt < io.in2.asSInt),
       	ALU_SGE  -> (io.in1.asSInt >= io.in2.asSInt),
       	ALU_SLTU -> (io.in1 < io.in2),
-      	ALU_SGEU -> (io.in1 >= io.in2))
+      	ALU_SGEU -> (io.in1 >= io.in2)))
 }
 
 
