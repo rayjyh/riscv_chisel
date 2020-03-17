@@ -20,8 +20,8 @@ object ALU {
 	val ALU_SGEU  =  15.U(4.W)
 }
 
-class ALUIO(ALUOpWidth: Int = 4, DataWidth: Int = 32) extends Bundle{
-	val op = Input(UInt(ALUOpWidth.W))
+class ALUIO(DataWidth: Int) extends Bundle{
+	val op = Input(UInt(4.W))
   	val in1 = Input(UInt(DataWidth.W))
   	val in2 = Input(UInt(DataWidth.W))
   	val out = Output(UInt(DataWidth.W))
@@ -29,8 +29,11 @@ class ALUIO(ALUOpWidth: Int = 4, DataWidth: Int = 32) extends Bundle{
 
 import ALU._
 
-class ALU(ALUOpWidth: Int = 4, DataWidth: Int = 32) extends Module{
-	val io = IO(new ALUIO)
+abstract class ParameterizedALU(DataWidth: Int) extends Module{
+  val io = IO(new ALUIO(DataWidth))
+}
+
+class ALU(DataWidth: Int) extends ParameterizedALU(DataWidth){
 	val shamt = io.in2(4,0).asUInt
 
 	io.out := MuxLookup(io.op, 0.U(DataWidth.W), Seq(
