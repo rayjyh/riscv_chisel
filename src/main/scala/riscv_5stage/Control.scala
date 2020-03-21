@@ -1,139 +1,177 @@
+
+
 package riscv_5stage
 
 import chisel3._
-import chisel3.util._
+import chisel3.util.ListLookup
 
-class ControlIO(OpcodeWidth: Int, ALUSrcWidth: Int, ALUOpWidth: Int) extends Bundle {
-	val opcode         	= Input(UInt(OpcodeWidth.W)) 
-	val funct3			= Input(UInt(3.W))
-	val funct7			= Input(UInt(7.W))
-	val IF_flush_in		= Input(UInt(1.W))
-	val Branch_outcome	= Input(UInt(1.W))
 
-	val IF_flush		= Output(UInt(1.W))
-	val ID_flush		= Output(UInt(1.W))
-	val EX_flush		= Output(UInt(1.W))
-	val MemRead			= Output(UInt(1.W))
-	val MemWrite		= Output(UInt(1.W))
-	val Jump			= Output(UInt(1.W))
-	val Branch			= Output(UInt(1.W))
-	val MemtoReg		= Output(UInt(1.W))
-	val RegWrite		= Output(UInt(1.W))
-	val ALUsrc			= Output(UInt(ALUSrcWidth.W))
-	val alu_op    		= Output(UInt(ALUOpWidth.W))
+object CSR {
+  val N = 0.U(3.W)
+  val W = 1.U(3.W)
+  val S = 2.U(3.W)
+  val C = 3.U(3.W)
+  val P = 4.U(3.W)
 }
 
-class Control() extends Module with RVConfig with {
-	val io = IO(new ControlIO)
+object Control {
+  val Y = true.B
+  val N = false.B
 
-	private val add_or_sub = Wire(UInt(ALUOpWidth.W))
-	private val srl_or_sra = Wire(UInt(ALUOpWidth.W))
+  // pc_sel
+  val PC_4   = 0.U(2.W)
+  val PC_ALU = 1.U(2.W)
+  val PC_0   = 2.U(2.W)
+  val PC_EPC = 3.U(2.W)
 
-	add_or_sub := Mux(((io.opcode === RV_OP) && (io.funct7(5)) && (io.funct3 == RV_FUNCT3_ADD_SUB)), ALU_OP_SUB, ALU_OP_ADD)
-	srl_or_sra := Mux(((io.opcode === RV_OP) && (io.funct7(5)) && (io.funct3 == RV_FUNCT3_SRA_SRL)), ALU_OP_SRA, ALU_OP_SRL)
-	io.ID_flush := io.Branch_outcome
-	io.IF_flush := io.Branch_outcome
-	io.EX_flush := io.Branch_outcome
+  // A_sel
+  val A_XXX  = 0.U(1.W)
+  val A_PC   = 0.U(1.W)
+  val A_RS1  = 1.U(1.W)
 
-	when(IF_flush_in) {
-		io.MemRead	:= 0.U
-		io.MemWrite	:= 1.U
-		io.Branch 	:= 1.U
-		io.Jump 	:= 1.U
-		io.MemtoReg	:= 1.U
-		io.RegWrite	:= 1.U
-		io.ALUsrc 	:= 0.U(ALU_SRC_WIDTH.W)
-		io.alu_op 	:= 0.U(ALU_OP_WIDTH.W)
-	}.elsewhen{
-		switch(io.opcode){
-			is(RV_BRANCH){
-				io.MemRead	:= 0.U
-				io.MemWrite := 0.U
-				io.Branch 	:= 1.U
-				io.Jump 	:= 0.U
-				io.MemtoReg := 1.U
-				io.RegWrite := 0.U
-				io.ALUsrc 	:= SRC_B_RS2.U
-				when(io.funct3 === RV_FUNCT3_BEQ){	io.alu_op := ALU_OP_SEQ}
-				.elsewhen(io.funct3 === RV_FUNCT3_BNE){	io.alu_op := ALU_OP_SNE}
-				.elsewhen(io.funct3 === RV_FUNCT3_BLT){	io.alu_op := ALU_OP_SLT}
-				.elsewhen(io.funct3 === RV_FUNCT3_BGE){	io.alu_op := ALU_OP_SGE}
-				.elsewhen(io.funct3 === RV_FUNCT3_BLTU){ io.alu_op := ALU_OP_SLTU}					
-				.elsewhen(io.funct3 === RV_FUNCT3_BGEU){ io.alu_op := ALU_OP_SGEU}
-				.otherwise{io.alu_op = ALU_OP_SEQ}
-			}
-			is(RV_LOAD){
-				io.MemRead	:= 1.U
-				io.MemWrite := 0.U
-				io.Branch 	:= 0.U
-				io.Jump 	:= 0.U
-				io.MemtoReg := 1.U //1 for datamem read, 0 for alu result
-				io.RegWrite := 1.U
-				io.ALUsrc 	:= SRC_B_IMM_I.U
-				io.alu_op 	:= ALU_OP_ADD.U
-			}
-			is(RV_STORE){
-				io.MemRead 	:= 0.U
-				io.MemWrite := 1.U
-				io.Branch 	:= 0.U
-				io.Jump 	:= 0.U
-				io.MemtoReg := 1.U //1 for datamem read, 0 for alu result
-				io.RegWrite := 0.U
-				io.ALUsrc 	:= SRC_B_IMM_S.U
-				io.alu_op 	:= ALU_OP_ADD.U
-			}
-			is(RV_IMM){
-				io.MemRead 	:= 0.U
-				io.MemWrite := 0.U
-				io.Branch 	:= 0.U
-				io.Jump 	:= 0.U
-				io.MemtoReg := 0.U //1 for datamem read, 0 for alu result
-				io.RegWrite := 1.U
-				io.ALUsrc 	:= SRC_B_IMM_I.U
-				when(io.funct3 === RV_FUNCT3_ADD_SUB){	io.alu_op := ALU_OP_ADD}
-				.elsewhen(io.funct3 === RV_FUNCT3_SLT){	io.alu_op := ALU_OP_SLT}
-				.elsewhen(io.funct3 === RV_FUNCT3_SLTU){io.alu_op := ALU_OP_SLTU}
-				.elsewhen(io.funct3 === RV_FUNCT3_XOR){	io.alu_op := ALU_OP_XOR}						
-				.elsewhen(io.funct3 === RV_FUNCT3_OR){	io.alu_op := ALU_OP_OR}
-				.otherwise{io.alu_op := ALU_OP_ADD.U}
-			}
-			is(RV_OP){
-				io.MemRead	= 0.U
-				io.MemWrite = 0.U
-				io.Branch 	= 0.U
-				io.Jump 	= 0.U
-				io.MemtoReg = 0.U
-				io.RegWrite = 1.U
-				io.ALUsrc 	= 0.U
-				when(io.funct3 === RV_FUNCT3_ADD_SUB){		alu_op := add_or_sub}
-				.elsewhen(io.funct3 === RV_FUNCT3_SLL){		alu_op := ALU_OP_SLL}
-				.elsewhen(io.funct3 === RV_FUNCT3_SLT){		alu_op := ALU_OP_SLT}
-				.elsewhen(io.funct3 === RV_FUNCT3_SLTU){		alu_op := ALU_OP_SLTU}
-				.elsewhen(io.funct3 === RV_FUNCT3_XOR){		alu_op := ALU_OP_XOR}	
-				.elsewhen(io.funct3 === RV_FUNCT3_SRA_SRL){	alu_op := srl_or_sra}						
-				.elsewhen(io.funct3 === RV_FUNCT3_OR){		alu_op := ALU_OP_OR}
-				.elsewhen(io.funct3 === RV_FUNCT3_AND){		alu_op := ALU_OP_AND}
-				.otherwise{alu_op := ALU_OP_ADD}
-			}
-			is(RV_JAL){
-				io.MemRead 	:= 0.U
-				io.MemWrite := 0.U
-				io.Branch 	:= 0.U
-				io.Jump 	:= 1.U
-				io.MemtoReg := 0.U //1 for datamem read, 0 for alu result
-				io.RegWrite := 0.U
-				io.ALUsrc 	:= 0.U
-			}
-			is(RV_SHAMT){
-				io.MemRead 	:= 0.U
-				io.MemWrite := 0.U
-				io.Branch 	:= 0.U
-				io.Jump 	:= 0.U
-				io.MemtoReg := 0.U //1 for datamem read, 0 for alu result
-				io.RegWrite := 0.U//changed***
-				io.ALUsrc 	:= 0.U(ALU_SRC_WIDTH.W)
-				io.alu_op 	:= 0.U(ALU_OP_WIDTH.W)
-			}
-		}
-	}
+  // B_sel
+  val B_XXX  = 0.U(1.W)
+  val B_IMM  = 0.U(1.W)
+  val B_RS2  = 1.U(1.W)
+
+  // imm_sel
+  val IMM_X  = 0.U(3.W)
+  val IMM_I  = 1.U(3.W)
+  val IMM_S  = 2.U(3.W)
+  val IMM_U  = 3.U(3.W)
+  val IMM_J  = 4.U(3.W)
+  val IMM_B  = 5.U(3.W)
+  val IMM_Z  = 6.U(3.W)
+
+  // br_type
+  val BR_XXX = 0.U(3.W)
+  val BR_LTU = 1.U(3.W)
+  val BR_LT  = 2.U(3.W)
+  val BR_EQ  = 3.U(3.W)
+  val BR_GEU = 4.U(3.W)
+  val BR_GE  = 5.U(3.W)
+  val BR_NE  = 6.U(3.W)
+
+  // st_type
+  val ST_XXX = 0.U(2.W)
+  val ST_SW  = 1.U(2.W)
+  val ST_SH  = 2.U(2.W)
+  val ST_SB  = 3.U(2.W)
+
+  // ld_type
+  val LD_XXX = 0.U(3.W)
+  val LD_LW  = 1.U(3.W)
+  val LD_LH  = 2.U(3.W)
+  val LD_LB  = 3.U(3.W)
+  val LD_LHU = 4.U(3.W)
+  val LD_LBU = 5.U(3.W)
+
+  // wb_sel
+  val WB_ALU = 0.U(2.W)
+  val WB_MEM = 1.U(2.W)
+  val WB_PC4 = 2.U(2.W)
+  val WB_CSR = 3.U(2.W)
+
+
+  import Instructions._
+  import ALU._
+
+  val default =
+    //                                                            kill                        wb_en  illegal?
+    //            pc_sel  A_sel   B_sel  imm_sel   alu_op   br_type |  st_type ld_type wb_sel  | csr_cmd |
+    //              |       |       |     |          |          |   |     |       |       |    |  |      |
+             List(PC_4,   A_XXX,  B_XXX, IMM_X, ALU_XXX   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, N, CSR.N, Y)
+  val map = Array(
+    LUI   -> List(PC_4  , A_PC,   B_IMM, IMM_U, ALU_COPY_B, BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    AUIPC -> List(PC_4  , A_PC,   B_IMM, IMM_U, ALU_ADD   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    JAL   -> List(PC_ALU, A_PC,   B_IMM, IMM_J, ALU_ADD   , BR_XXX, Y, ST_XXX, LD_XXX, WB_PC4, Y, CSR.N, N),
+    JALR  -> List(PC_ALU, A_RS1,  B_IMM, IMM_I, ALU_ADD   , BR_XXX, Y, ST_XXX, LD_XXX, WB_PC4, Y, CSR.N, N),
+    BEQ   -> List(PC_4  , A_PC,   B_IMM, IMM_B, ALU_ADD   , BR_EQ , N, ST_XXX, LD_XXX, WB_ALU, N, CSR.N, N),
+    BNE   -> List(PC_4  , A_PC,   B_IMM, IMM_B, ALU_ADD   , BR_NE , N, ST_XXX, LD_XXX, WB_ALU, N, CSR.N, N),
+    BLT   -> List(PC_4  , A_PC,   B_IMM, IMM_B, ALU_ADD   , BR_LT , N, ST_XXX, LD_XXX, WB_ALU, N, CSR.N, N),
+    BGE   -> List(PC_4  , A_PC,   B_IMM, IMM_B, ALU_ADD   , BR_GE , N, ST_XXX, LD_XXX, WB_ALU, N, CSR.N, N),
+    BLTU  -> List(PC_4  , A_PC,   B_IMM, IMM_B, ALU_ADD   , BR_LTU, N, ST_XXX, LD_XXX, WB_ALU, N, CSR.N, N),
+    BGEU  -> List(PC_4  , A_PC,   B_IMM, IMM_B, ALU_ADD   , BR_GEU, N, ST_XXX, LD_XXX, WB_ALU, N, CSR.N, N),
+    LB    -> List(PC_0  , A_RS1,  B_IMM, IMM_I, ALU_ADD   , BR_XXX, Y, ST_XXX, LD_LB , WB_MEM, Y, CSR.N, N),
+    LH    -> List(PC_0  , A_RS1,  B_IMM, IMM_I, ALU_ADD   , BR_XXX, Y, ST_XXX, LD_LH , WB_MEM, Y, CSR.N, N),
+    LW    -> List(PC_0  , A_RS1,  B_IMM, IMM_I, ALU_ADD   , BR_XXX, Y, ST_XXX, LD_LW , WB_MEM, Y, CSR.N, N),
+    LBU   -> List(PC_0  , A_RS1,  B_IMM, IMM_I, ALU_ADD   , BR_XXX, Y, ST_XXX, LD_LBU, WB_MEM, Y, CSR.N, N),
+    LHU   -> List(PC_0  , A_RS1,  B_IMM, IMM_I, ALU_ADD   , BR_XXX, Y, ST_XXX, LD_LHU, WB_MEM, Y, CSR.N, N),
+    SB    -> List(PC_4  , A_RS1,  B_IMM, IMM_S, ALU_ADD   , BR_XXX, N, ST_SB , LD_XXX, WB_ALU, N, CSR.N, N),
+    SH    -> List(PC_4  , A_RS1,  B_IMM, IMM_S, ALU_ADD   , BR_XXX, N, ST_SH , LD_XXX, WB_ALU, N, CSR.N, N),
+    SW    -> List(PC_4  , A_RS1,  B_IMM, IMM_S, ALU_ADD   , BR_XXX, N, ST_SW , LD_XXX, WB_ALU, N, CSR.N, N),
+    ADDI  -> List(PC_4  , A_RS1,  B_IMM, IMM_I, ALU_ADD   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    SLTI  -> List(PC_4  , A_RS1,  B_IMM, IMM_I, ALU_SLT   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    SLTIU -> List(PC_4  , A_RS1,  B_IMM, IMM_I, ALU_SLTU  , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    XORI  -> List(PC_4  , A_RS1,  B_IMM, IMM_I, ALU_XOR   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    ORI   -> List(PC_4  , A_RS1,  B_IMM, IMM_I, ALU_OR    , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    ANDI  -> List(PC_4  , A_RS1,  B_IMM, IMM_I, ALU_AND   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    SLLI  -> List(PC_4  , A_RS1,  B_IMM, IMM_I, ALU_SLL   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    SRLI  -> List(PC_4  , A_RS1,  B_IMM, IMM_I, ALU_SRL   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    SRAI  -> List(PC_4  , A_RS1,  B_IMM, IMM_I, ALU_SRA   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    ADD   -> List(PC_4  , A_RS1,  B_RS2, IMM_X, ALU_ADD   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    SUB   -> List(PC_4  , A_RS1,  B_RS2, IMM_X, ALU_SUB   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    SLL   -> List(PC_4  , A_RS1,  B_RS2, IMM_X, ALU_SLL   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    SLT   -> List(PC_4  , A_RS1,  B_RS2, IMM_X, ALU_SLT   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    SLTU  -> List(PC_4  , A_RS1,  B_RS2, IMM_X, ALU_SLTU  , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    XOR   -> List(PC_4  , A_RS1,  B_RS2, IMM_X, ALU_XOR   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    SRL   -> List(PC_4  , A_RS1,  B_RS2, IMM_X, ALU_SRL   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    SRA   -> List(PC_4  , A_RS1,  B_RS2, IMM_X, ALU_SRA   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    OR    -> List(PC_4  , A_RS1,  B_RS2, IMM_X, ALU_OR    , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    AND   -> List(PC_4  , A_RS1,  B_RS2, IMM_X, ALU_AND   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, Y, CSR.N, N),
+    FENCE -> List(PC_4  , A_XXX,  B_XXX, IMM_X, ALU_XXX   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, N, CSR.N, N),
+    FENCEI-> List(PC_0  , A_XXX,  B_XXX, IMM_X, ALU_XXX   , BR_XXX, Y, ST_XXX, LD_XXX, WB_ALU, N, CSR.N, N),
+    CSRRW -> List(PC_0  , A_RS1,  B_XXX, IMM_X, ALU_COPY_A, BR_XXX, Y, ST_XXX, LD_XXX, WB_CSR, Y, CSR.W, N),
+    CSRRS -> List(PC_0  , A_RS1,  B_XXX, IMM_X, ALU_COPY_A, BR_XXX, Y, ST_XXX, LD_XXX, WB_CSR, Y, CSR.S, N),
+    CSRRC -> List(PC_0  , A_RS1,  B_XXX, IMM_X, ALU_COPY_A, BR_XXX, Y, ST_XXX, LD_XXX, WB_CSR, Y, CSR.C, N),
+    CSRRWI-> List(PC_0  , A_XXX,  B_XXX, IMM_Z, ALU_XXX   , BR_XXX, Y, ST_XXX, LD_XXX, WB_CSR, Y, CSR.W, N),
+    CSRRSI-> List(PC_0  , A_XXX,  B_XXX, IMM_Z, ALU_XXX   , BR_XXX, Y, ST_XXX, LD_XXX, WB_CSR, Y, CSR.S, N),
+    CSRRCI-> List(PC_0  , A_XXX,  B_XXX, IMM_Z, ALU_XXX   , BR_XXX, Y, ST_XXX, LD_XXX, WB_CSR, Y, CSR.C, N),
+    ECALL -> List(PC_4  , A_XXX,  B_XXX, IMM_X, ALU_XXX   , BR_XXX, N, ST_XXX, LD_XXX, WB_CSR, N, CSR.P, N),
+    EBREAK-> List(PC_4  , A_XXX,  B_XXX, IMM_X, ALU_XXX   , BR_XXX, N, ST_XXX, LD_XXX, WB_CSR, N, CSR.P, N),
+    ERET  -> List(PC_EPC, A_XXX,  B_XXX, IMM_X, ALU_XXX   , BR_XXX, Y, ST_XXX, LD_XXX, WB_CSR, N, CSR.P, N),
+    WFI   -> List(PC_4  , A_XXX,  B_XXX, IMM_X, ALU_XXX   , BR_XXX, N, ST_XXX, LD_XXX, WB_ALU, N, CSR.N, N))
+}
+
+
+class ControlSignals(xlen: Int) extends Bundle{
+  val inst      = Input(UInt(xlen.W))
+  val pc_sel    = Output(UInt(2.W))
+  val inst_kill = Output(Bool())
+  val A_sel     = Output(UInt(1.W))
+  val B_sel     = Output(UInt(1.W))
+  val imm_sel   = Output(UInt(3.W))
+  val alu_op    = Output(UInt(4.W))
+  val br_type   = Output(UInt(3.W))
+  val st_type   = Output(UInt(2.W))
+  val ld_type   = Output(UInt(3.W))
+  val wb_sel    = Output(UInt(2.W))
+  val wb_en     = Output(Bool())
+  val csr_cmd   = Output(UInt(3.W))
+  val illegal   = Output(Bool())
+}
+
+
+class Control(xlen: Int) extends Module with Config{
+  val io = IO(new ControlSignals(xlen))
+  val ctrlSignals = ListLookup(io.inst, Control.default, Control.map)
+
+  // Control signals for Fetch
+  io.pc_sel    := ctrlSignals(0)
+  io.inst_kill := ctrlSignals(6).toBool 
+
+  // Control signals for Execute
+  io.A_sel   := ctrlSignals(1)
+  io.B_sel   := ctrlSignals(2)
+  io.imm_sel := ctrlSignals(3)
+  io.alu_op  := ctrlSignals(4)
+  io.br_type := ctrlSignals(5)
+  io.st_type := ctrlSignals(7)
+
+  // Control signals for Write Back
+  io.ld_type := ctrlSignals(8)
+  io.wb_sel  := ctrlSignals(9)
+  io.wb_en   := ctrlSignals(10).toBool
+  io.csr_cmd := ctrlSignals(11)
+  io.illegal := ctrlSignals(12)
 }
