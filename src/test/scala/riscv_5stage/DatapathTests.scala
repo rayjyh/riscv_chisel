@@ -14,9 +14,9 @@ class DatapathTester(datapath: => Datapath) extends BasicTester with TestUtils {
 
   dut.io.ctrl <> ctrl.io
 
-  override val insts = bypassTest
+  override val insts = bubblesortTest
 
-  val sInit :: sRun :: Nil = Enum(2)
+  val sImemInit :: sDmemInit :: sRun :: Nil = Enum(2)
   val state = RegInit(sInit)
   val (cntr, done) = Counter(state === sInit, insts.size)
   val timeout = RegInit(0.U(32.W))
@@ -32,10 +32,15 @@ class DatapathTester(datapath: => Datapath) extends BasicTester with TestUtils {
   dut.io.dcache.dout := RegNext(dmem(daddr))
 
   switch(state) {
-    is(sInit) {
-      printf("Datapath Test Begins!\n")
+    is(sImemInit) {
+      printf("Imem Init Begins!\n")
       imem(Const.PC_START.U + cntr) := VecInit(insts)(cntr)
-      when(done) { state := sRun }
+      when(done) { state := sDmemInit }
+    }
+    is(sDmemInit) {
+      printf("Dmem Init Begins!\n")
+      for (i <- 0 util 5) {dmem(i) := 5.U - i}
+      state := sRun
     }
     is(sRun) {
       when(!dut.io.icache.wen) {

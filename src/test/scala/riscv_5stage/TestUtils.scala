@@ -1,6 +1,6 @@
 // See LICENSE for license details.
 
-package mini
+package riscv_5stage
 
 import chisel3._
 import chisel3.util._
@@ -15,6 +15,9 @@ object BypassTest extends DatapathTest {
 }
 object ExceptionTest extends DatapathTest {
   override def toString: String = "exception test"
+}
+object BSortTest extends DatapathTest {
+  override def toString: String = "bubble sort test"
 }
 // Define your own test
 
@@ -184,15 +187,37 @@ trait TestUtils {
     I(Funct3.ADD, 31, 31, 1),  // ADDI x31, x31, 1 # x31 <- 7
     //fin
   )
-  val BubbleSort = List(
+  val bubblesortTest = List(
     I(Funct3.ADD, 1, 0,  5),  // start: ADDI x1, x0,  5 # x1 <- 5
-    RU(Funct3.ADD, 2, 0,  2),  //outer:	ADDI x31, x0,  1 # x31 <- 2
-    I(Funct3.ADD, 31, 0,  2),  // 	ADDI x31, x0,  1 # x31 <- 2
-
+    nop,
+    RU(Funct3.ADD, 2, 0, 0),  //outer:	ADD  x2, x0, x0 # x2 <- 0
+    nop,
+    I(Funct3.ADD, 3, 1, -2),  // 	ADDI x3, x1, -2 # x3 <- 3
+    nop,
+    L(Funct3.LW, 4, 3, 0),  //  inner:  LW   x4, 0(x3)  # x4 <- Mem[3]
+    nop,
+    L(Funct3.LW, 5, 3, 1),  //          LW   x5, 1(x3)  # x5 <- Mem[4]
+    nop,
+    B(Funct3.BGE, 5, 4, 8), //          BGE  x5, x4, no_swap  # go to the no_swap
+    nop,
+    S(Funct3.SW, 4, 3, 1)  //           SW   x4, 1(x3)  # Mem[4] <- x4
+    nop,
+    S(Funct3.SW, 5, 3, 0)  //           SW   x5, 0(x3)  # Mem[3] <- x5
+    nop,
+    I(Funct3.ADD, 2, 2, 1),  //         ADDI x2, x2, 1 # x2 <- 1
+    nop,
+    I(Funct3.ADD, 3, 3, -1),// no_swap: ADDI x3, x3, -1 # x3 <- x3 - 1 
+    nop,
+    B(Funct3.BGE, 3, 0, -14), //        BGE  x3, x0, inner  # go to the inner
+    nop,
+    B(Funct3.BGE, 4, 1, -20), //         BNE  x2, x0, outer  # go to the outer
+    nop,
+    B(Funct3.BGE, 4, 1, -24), //         BEQ  x0, x0, start  # go to the start
 
   )
   val tests = Map(
-    BypassTest    -> bypassTest)
+    BSortTest     -> bubblesortTest
+    //BypassTest    -> bypassTest)
     //ExceptionTest -> exceptionTest)
   val testResults = Map(
     BypassTest    -> 10
